@@ -3,11 +3,52 @@ import UIKit
 
 final class FlickrPhotosViewController: UICollectionViewController {
     // MARK: - Properties
+  @IBAction func share(_ sender: UIBarButtonItem) {
+    guard !searches.isEmpty else {
+        return
+    }
+
+    guard !selectedPhotos.isEmpty else {
+      sharing.toggle()
+      return
+    }
+
+    guard sharing else {
+      return
+    }
+
+    let images: [UIImage] = selectedPhotos.compactMap { photo in
+      if let thumbnail = photo.thumbnail {
+        return thumbnail
+      }
+
+      return nil
+    }
+
+    guard !images.isEmpty else {
+      return
+    }
+
+    let shareController = UIActivityViewController(
+      activityItems: images,
+      applicationActivities: nil)
+    shareController.completionWithItemsHandler = { _, _, _, _ in
+      self.sharing = false
+      self.selectedPhotos.removeAll()
+      self.updateSharedPhotoCountLabel()
+    }
+
+    shareController.popoverPresentationController?.barButtonItem = sender
+    shareController.popoverPresentationController?.permittedArrowDirections = .any
+    present(shareController, animated: true, completion: nil)
+  }
   private let reuseIdentifier = "FlickrCell"
   private let sectionInsets = UIEdgeInsets(top: 50.0, left: 20.0, bottom: 50.0, right: 20.0)
-  private var searches = [FlickrSearchResults]()
   private let flickr = Flickr()
   private let itemsPerRow: CGFloat = 3
+  private let shareLabel = UILabel()
+  private var selectedPhotos: [FlickrPhoto] = []
+  private var searches = [FlickrSearchResults]()
   var largePhotoIndexPath: IndexPath? {
     didSet {
       // 2
@@ -30,6 +71,43 @@ final class FlickrPhotosViewController: UICollectionViewController {
                                            animated: true)
         }
       }
+    }
+  }
+  var sharing: Bool = false {
+    didSet {
+      // 1
+      collectionView.allowsMultipleSelection = sharing
+
+      // 2
+      collectionView.selectItem(at: nil, animated: true, scrollPosition: [])
+      selectedPhotos.removeAll()
+
+      guard let shareButton = self.navigationItem.rightBarButtonItems?.first else {
+        return
+      }
+
+      // 3
+      guard sharing else {
+        navigationItem.setRightBarButton(shareButton, animated: true)
+        return
+      }
+
+      // 4
+      if largePhotoIndexPath != nil {
+        largePhotoIndexPath = nil
+      }
+
+      // 5
+      updateSharedPhotoCountLabel()
+
+      // 6
+      let sharingItem = UIBarButtonItem(customView: shareLabel)
+      let items: [UIBarButtonItem] = [
+        shareButton,
+        sharingItem
+      ]
+
+      navigationItem.setRightBarButtonItems(items, animated: true)
     }
   }
 }
@@ -66,6 +144,20 @@ private extension FlickrPhotosViewController {
       case .error(_):
         return
       }
+    }
+  }
+  
+  func updateSharedPhotoCountLabel() {
+    if sharing {
+      shareLabel.text = "\(selectedPhotos.count) photos selected"
+    } else {
+      shareLabel.text = ""
+    }
+
+    shareLabel.textColor = themeColor
+
+    UIView.animate(withDuration: 0.3) {
+      self.shareLabel.sizeToFit()
     }
   }
 }
@@ -205,6 +297,10 @@ extension FlickrPhotosViewController: UICollectionViewDelegateFlowLayout {
 extension FlickrPhotosViewController {
   override func collectionView(_ collectionView: UICollectionView,
                                shouldSelectItemAt indexPath: IndexPath) -> Bool {
+    guard !sharing else {
+      return true
+    }
+    
     if largePhotoIndexPath == indexPath {
       largePhotoIndexPath = nil
     } else {
@@ -212,5 +308,29 @@ extension FlickrPhotosViewController {
     }
 
     return false
+  }
+  
+  override func collectionView(_ collectionView: UICollectionView,
+                               didSelectItemAt indexPath: IndexPath) {
+    guard sharing else {
+      return
+    }
+
+    let flickrPhoto = photo(for: indexPath)
+    selectedPhotos.append(flickrPhoto)
+    updateSharedPhotoCountLabel()
+  }
+  
+  override func collectionView(_ collectionView: UICollectionView,
+                               didDeselectItemAt indexPath: IndexPath) {
+    guard sharing else {
+      return
+    }
+
+    let flickrPhoto = photo(for: indexPath)
+    if let index = selectedPhotos.firstIndex(of: flickrPhoto) {
+      selectedPhotos.remove(at: index)
+      updateSharedPhotoCountLabel()
+    }
   }
 }
